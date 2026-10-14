@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TimeOS — Alexa+ Simulator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1419;
+    color: #e7e9ea;
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .container { width: 100%; max-width: 720px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #8899a6; font-size: 13px; margin-bottom: 20px; }
+  .chat {
+    background: #192734;
+    border-radius: 12px;
+    padding: 16px;
+    height: 440px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+  }
+  .msg { margin-bottom: 14px; display: flex; flex-direction: column; }
+  .msg.user { align-items: flex-end; }
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 14px;
+    max-width: 80%;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .user .bubble { background: #1d9bf0; color: white; }
+  .alexa .bubble { background: #2f3336; }
+  .label { font-size: 11px; color: #8899a6; margin-bottom: 4px; }
+  .input-row { display: flex; gap: 8px; }
+  input {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 24px;
+    border: 1px solid #2f3336;
+    background: #192734;
+    color: #e7e9ea;
+    font-size: 14px;
+    outline: none;
+  }
+  input:focus { border-color: #1d9bf0; }
+  button {
+    padding: 12px 24px;
+    border-radius: 24px;
+    border: none;
+    background: #1d9bf0;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #1a8cd8; }
+  button:disabled { background: #2f3336; cursor: not-allowed; }
+  .examples { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .example {
+    padding: 6px 12px;
+    border-radius: 16px;
+    background: #192734;
+    border: 1px solid #2f3336;
+    color: #8899a6;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .example:hover { border-color: #1d9bf0; color: #1d9bf0; }
+  .status { font-size: 12px; color: #8899a6; margin-top: 8px; }
+  .action-btn {
+    margin-top: 8px;
+    padding: 8px 16px;
+    border-radius: 16px;
+    border: 1px solid #1d9bf0;
+    background: transparent;
+    color: #1d9bf0;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .action-btn:hover { background: #1d9bf0; color: white; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>TimeOS</h1>
+  <div class="subtitle">Alexa+ simulator — clash-aware calendar</div>
+
+  <div class="chat" id="chat">
+    <div class="msg alexa">
+      <div class="label">Alexa</div>
+      <div class="bubble">Hi. Tell me to add an event. If it clashes with something, I'll ask you what to do.</div>
+    </div>
+  </div>
+
+  <div class="input-row">
+    <input id="input" type="text" placeholder="Add a meeting at 10am on 2026-10-20" autofocus />
+    <button id="send" onclick="sendMessage()">Send</button>
+  </div>
+
+  <div class="examples">
+    <div class="example" onclick="fill('Add a meeting at 2026-10-20T10:00:00 to 2026-10-20T11:00:00')">Add meeting 10-11</div>
+    <div class="example" onclick="fill('Add a study session at 2026-10-20T10:30:00 to 2026-10-20T11:30:00')">Add study 10:30-11:30</div>
+    <div class="example" onclick="fill('What is on 2026-10-20?')">List events</div>
+    <div class="example" onclick="fill('Find me 60 minutes free on 2026-10-20')">Find free slots</div>
+  </div>
+
+  <div class="status" id="status">Connecting...</div>
+</div>
+
+<script>
+const SERVER = "http://127.0.0.1:8765/mcp";
+let sessionId = null;
+let initialized = false;
+
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const status = document.getElementById("status");
+
+function addMessage(role, text) {
+  const msg = document.createElement("div");
+  msg.className = "msg " + role;
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = role === "user" ? "You" : "Alexa";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  msg.appendChild(label);
+  msg.appendChild(bubble);
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+  return msg;
+}
+
+function addResolveButton(msgEl, blockedTitle, blockedStart, blockedEnd, conflictEventId) {
+  const btn = document.createElement("button");
+  btn.className = "action-btn";
+  btn.textContent = "Move conflict & reschedule";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "Resolving...";
+    try {
+      const reply = await callTool("resolve_conflict", {
+        blocked_title: blockedTitle,
+        blocked_start: blockedStart,
+        blocked_end: blockedEnd,
+        conflict_event_id: conflictEventId
+      });
+      addMessage("alexa", reply);
+      btn.textContent = "Done";
+    } catch (e) {
+      addMessage("alexa", "Error: " + e.message);
+      btn.disabled = false;
+      btn.textContent = "Move conflict & reschedule";
+    }
+  };
+  msgEl.appendChild(btn);
+}
+
+function fill(text) {
+  input.value = text;
+  input.focus();
+}
+
+async function initialize() {
+  const res = await fetch(SERVER, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream"
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "alexa-sim", version: "1.0" }
+      },
+      id: 1
+    })
+  });
+  const sid = res.headers.get("mcp-session-id");
+  if (sid) sessionId = sid;
+  await res.text();
+  initialized = true;
+
+  if (sessionId) {
+    await fetch(SERVER, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "mcp-session-id": sessionId
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized"
+      })
+    });
+  }
+  status.textContent = "Connected to TimeOS server.";
+}
+
+function parseSSE(text) {
+  const lines = text.split("\n");
+  for (const line of lines) {
+    if (line.startsWith("data: ")) {
+      try {
+        return JSON.parse(line.slice(6));
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+async function callTool(name, args) {
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream"
+  };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
+
+  const res = await fetch(SERVER, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { name, arguments: args },
+      id: Date.now()
+    })
+  });
+
+  const newSessionId = res.headers.get("mcp-session-id");
+  if (newSessionId) sessionId = newSessionId;
+
+  const text = await res.text();
+
+  let parsed = parseSSE(text);
+  if (!parsed) {
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      return "Could not parse response: " + text.slice(0, 200);
+    }
+  }
+
+  if (parsed.error) {
+    return "Server error: " + JSON.stringify(parsed.error);
+  }
+  if (!parsed.result) {
+    return "No result. Raw: " + JSON.stringify(parsed).slice(0, 300);
+  }
+
+  const content = parsed.result.content;
+  if (Array.isArray(content)) {
+    return content.map(c => c.text || JSON.stringify(c)).join("\n");
+  }
+  return JSON.stringify(parsed.result);
+}
+
+function extractTime(text) {
+  const isoMatch = text.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/g);
+  if (isoMatch && isoMatch.length >= 2) {
+    return { start: isoMatch[0], end: isoMatch[1] };
+  }
+  const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
+  const timeMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (dateMatch && timeMatch) {
+    let hour = parseInt(timeMatch[1]);
+    const min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    const meridiem = timeMatch[3].toLowerCase();
+    if (meridiem === "pm" && hour !== 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+    const pad = n => String(n).padStart(2, "0");
+    const start = `${dateMatch[1]}T${pad(hour)}:${pad(min)}:00`;
+    const end = `${dateMatch[1]}T${pad(hour + 1)}:${pad(min)}:00`;
+    return { start, end };
+  }
+  return null;
+}
+
+function extractConflictEventId(text) {
+  const m = text.match(/\(ID\s+(\d+)\)/);
+  return m ? parseInt(m[1]) : null;
+}
+
+async function handleUserInput(text) {
+  const lower = text.toLowerCase();
+
+  if (lower.includes("free") || lower.includes("slot")) {
+    const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
+    const durMatch = text.match(/(\d+)\s*(min|minutes|hour|hours)/i);
+    let duration = 60;
+    if (durMatch) {
+      duration = parseInt(durMatch[1]);
+      if (durMatch[2].startsWith("hour")) duration *= 60;
+    }
+    if (dateMatch) {
+      return await callTool("find_free_slots", { date: dateMatch[1], duration_minutes: duration });
+    }
+    return "Tell me a date like 2026-10-20 and how long you need.";
+  }
+
+  if (lower.includes("list") || lower.includes("what") || lower.includes("show")) {
+    const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) {
+      return await callTool("get_events", { date: dateMatch[1] });
+    }
+    return "Tell me a date to list events for.";
+  }
+
+  if (lower.includes("add") || lower.includes("schedule") || lower.includes("book")) {
+    const times = extractTime(text);
+    if (!times) return "I need a date and time. Try: add a meeting on 2026-10-20 at 10am.";
+    const titleMatch = text.match(/(?:add|schedule|book)\s+(?:a\s+)?([a-z\s]+?)\s+(?:at|on|from)/i);
+    const title = titleMatch ? titleMatch[1].trim() : "Event";
+    const finalTitle = title.charAt(0).toUpperCase() + title.slice(1);
+
+    const reply = await callTool("add_event", {
+      title: finalTitle,
+      start_time: times.start,
+      end_time: times.end
+    });
+
+    if (reply.startsWith("CONFLICT")) {
+      const conflictId = extractConflictEventId(reply);
+      const msgEl = addMessage("alexa", reply);
+      if (conflictId !== null) {
+        addResolveButton(msgEl, finalTitle, times.start, times.end, conflictId);
+      }
+      return null;
+    }
+    return reply;
+  }
+
+  return "Try: 'Add a meeting on 2026-10-20 at 10am' or 'Find 60 minutes free on 2026-10-20'.";
+}
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text || !initialized) return;
+  input.value = "";
+  addMessage("user", text);
+  sendBtn.disabled = true;
+  try {
+    const reply = await handleUserInput(text);
+    if (reply !== null) addMessage("alexa", reply);
+  } catch (err) {
+    addMessage("alexa", "Error: " + err.message);
+  }
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter") sendMessage();
+});
+
+initialize().catch(err => {
+  status.textContent = "Failed to connect: " + err.message;
+});
+</script>
+</body>
+</html>

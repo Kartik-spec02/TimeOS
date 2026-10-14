@@ -1,0 +1,214 @@
+============================================================
+TimeOS — COMMAND RUNBOOK
+============================================================
+
+------------------------------------------------------------
+FIRST TIME SETUP (run once)
+------------------------------------------------------------
+cd D:\TimeOS
+python -m venv venv
+venv\Scripts\activate
+pip install "mcp<2"
+pip install uvicorn
+
+
+------------------------------------------------------------
+DAILY STARTUP — OPEN 2 TERMINALS IN VS CODE
+------------------------------------------------------------
+
+TERMINAL 1 (MCP SERVER):
+cd D:\TimeOS
+venv\Scripts\activate
+python server.py
+
+You should see:
+INFO:     Uvicorn running on http://127.0.0.1:8765
+
+
+TERMINAL 2 (WEB PAGE SERVER):
+cd D:\TimeOS
+venv\Scripts\activate
+python -m http.server 3000
+
+You should see:
+Serving HTTP on 0.0.0.0 port 3000
+
+
+------------------------------------------------------------
+OPTIONAL — PUBLIC TUNNEL (Terminal 3)
+------------------------------------------------------------
+Only needed if you want the server reachable from the internet.
+
+cd D:\TimeOS
+.\cloudflared.exe tunnel --url http://127.0.0.1:8765
+
+Copy the URL that ends in .trycloudflare.com
+
+
+------------------------------------------------------------
+OPEN THE DEMO
+------------------------------------------------------------
+Browser URL:
+http://localhost:3000/alexa_sim.html
+
+Status bar at the bottom should say:
+"Connected to TimeOS server."
+
+
+------------------------------------------------------------
+DEMO SCRIPT (for video)
+------------------------------------------------------------
+1. Click "Add meeting 10-11"
+   -> Event 'Meeting' created with ID 1.
+
+2. Click "Add study 10:30-11:30"
+   -> CONFLICT message appears (THE WOW MOMENT)
+
+3. Click "Find free slots"
+   -> Lists the free time gaps
+
+4. Click "List events"
+   -> Shows both events
+
+
+------------------------------------------------------------
+RESTART EVERYTHING (Fresh Start)
+------------------------------------------------------------
+In each running terminal, press Ctrl+C to stop it.
+
+Terminal 1 (server):
+  python server.py
+
+Terminal 2 (web page):
+  python -m http.server 3000
+
+Terminal 3 (tunnel, if using):
+  .\cloudflared.exe tunnel --url http://127.0.0.1:8765
+
+Then refresh browser: Ctrl + Shift + R
+
+
+------------------------------------------------------------
+FIX DATABASE (Clean Demo)
+------------------------------------------------------------
+IMPORTANT: Never delete the database while the server is running.
+
+1. Go to Terminal 1 and press Ctrl+C to stop the server.
+2. Run:
+   Remove-Item data\timeos.db
+3. Restart the server:
+   python server.py
+
+The database and table are recreated automatically on startup.
+
+
+------------------------------------------------------------
+RECONNECT BROWSER
+------------------------------------------------------------
+Refresh with: Ctrl + Shift + R
+Or reopen:    http://localhost:3000/alexa_sim.html
+
+
+------------------------------------------------------------
+TROUBLESHOOTING
+------------------------------------------------------------
+
+Problem: "Failed to fetch" in browser
+Fix:     Terminal 1 server is not running. Restart it:
+         python server.py
+         Then refresh browser with Ctrl + Shift + R
+
+Problem: "no such table: events"
+Fix:     Stop server (Ctrl+C), then restart:
+         python server.py
+
+Problem: "Invalid Host header"
+Fix:     Make sure this line is in server.py inside FastMCP(...):
+         transport_security=TransportSecuritySettings(
+             enable_dns_rebinding_protection=False
+         )
+         Then restart the server.
+
+Problem: ModuleNotFoundError: mcp.server.fastmcp
+Fix:     pip install "mcp<2"
+
+Problem: uvicorn not found
+Fix:     pip install uvicorn
+
+Problem: Port 3000 already in use
+Fix:     python -m http.server 3001
+         Then open http://localhost:3001/alexa_sim.html
+
+Problem: Port 8765 already in use
+Fix:     Stop the old server (Ctrl+C in Terminal 1), then:
+         python server.py
+
+Problem: cloudflared not found
+Fix:     Use .\cloudflared.exe (with the .\ prefix)
+
+
+------------------------------------------------------------
+TEST FROM COMMAND LINE (optional)
+------------------------------------------------------------
+venv\Scripts\activate
+python test_client.py
+
+Should run 8 tests, all passing.
+
+
+------------------------------------------------------------
+PUSH TO GITHUB (first time)
+------------------------------------------------------------
+cd D:\TimeOS
+git init
+git add server.py alexa_sim.html test_client.py requirements.txt README.md
+git commit -m "TimeOS: clash-aware calendar MCP server for Alexa+"
+git branch -M main
+git remote add origin https://github.com/YOUR-USERNAME/TimeOS.git
+git push -u origin main
+
+
+------------------------------------------------------------
+PUSH UPDATES (after first time)
+------------------------------------------------------------
+cd D:\TimeOS
+git add .
+git commit -m "your message here"
+git push
+
+
+------------------------------------------------------------
+FULL RESET (Nuclear Option)
+------------------------------------------------------------
+1. Press Ctrl+C in every terminal to stop everything.
+2. Run:
+   Remove-Item data\timeos.db -ErrorAction SilentlyContinue
+3. Terminal 1: python server.py
+4. Terminal 2: python -m http.server 3000
+5. Browser:    http://localhost:3000/alexa_sim.html
+
+
+------------------------------------------------------------
+STOP EVERYTHING
+------------------------------------------------------------
+Press Ctrl+C in each terminal.
+Or close VS Code.
+
+
+------------------------------------------------------------
+FILE MAP
+------------------------------------------------------------
+D:\TimeOS\
+  server.py            <- MCP server (7 calendar tools)
+  alexa_sim.html       <- Alexa-style chat interface
+  test_client.py       <- Command-line tester
+  requirements.txt     <- Python dependencies
+  cloudflared.exe      <- Tunnel binary
+  data\
+    timeos.db          <- SQLite database (auto-created)
+  README.md            <- GitHub description
+  COMMANDS.md          <- This file
+
+============================================================
+END OF RUNBOOK
+============================================================
